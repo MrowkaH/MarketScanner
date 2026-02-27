@@ -1,5 +1,5 @@
 """
-PPI Predictor - PDF Report Generator
+PPI Core Predictor - PDF Report Generator
 
 Generates a professional PDF report with:
   - Probability distribution table (each 0.1% bin with probability)
@@ -24,12 +24,12 @@ ROOT = Path(__file__).resolve().parent.parent
 RESULTS_DIR = ROOT / "results"
 
 
-class PPIReportPDF(FPDF):
+class PPICoreReportPDF(FPDF):
     """Custom FPDF subclass with header/footer."""
 
     def header(self):
         self.set_font("Helvetica", "B", 14)
-        self.cell(0, 8, "PPI Predictor - Forecast Report", ln=True, align="C")
+        self.cell(0, 8, "PPI Core Predictor - Forecast Report", ln=True, align="C")
         self.set_font("Helvetica", "", 9)
         self.cell(0, 5, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align="C")
         self.ln(4)
@@ -42,19 +42,19 @@ class PPIReportPDF(FPDF):
 
 def generate_report(
     result: dict,
-    expected_ppi_mom: float,
+    expected_ppi_core_mom: float,
     summary: dict,
     metrics: dict,
     direct_result: dict | None = None,
     direct_metrics: dict | None = None,
 ) -> str:
     """
-    Generate a PDF report and save it to PPI_Predictor/results/.
+    Generate a PDF report and save it to PPI_CORE_Predictor/results/.
 
     Parameters
     ----------
     result : dict from Predictor.predict()
-    expected_ppi_mom : market expectation
+    expected_ppi_core_mom : market expectation
     summary : dict from Analyzer.summary()
     metrics : dict from Predictor.train()
 
@@ -65,7 +65,7 @@ def generate_report(
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    pdf_path = RESULTS_DIR / f"PPI_Report_{timestamp}.pdf"
+    pdf_path = RESULTS_DIR / f"PPI_CORE_Report_{timestamp}.pdf"
     chart_path = RESULTS_DIR / f"_temp_chart_{timestamp}.png"
     matrix_path = RESULTS_DIR / f"_temp_matrix_{timestamp}.png"
 
@@ -74,8 +74,8 @@ def generate_report(
     ensemble = reg.get("ensemble", 0)
 
     # ── Generate charts ───────────────────────────────
-    _generate_chart(prob_dist, expected_ppi_mom, ensemble, chart_path)
-    _generate_probability_matrix(prob_dist, ensemble, matrix_path, label="PPI")
+    _generate_chart(prob_dist, expected_ppi_core_mom, ensemble, chart_path)
+    _generate_probability_matrix(prob_dist, ensemble, matrix_path, label="PPI Core")
 
     # Generate direct impact charts if available
     direct_chart_path = RESULTS_DIR / f"_temp_direct_chart_{timestamp}.png"
@@ -84,13 +84,13 @@ def generate_report(
         d_reg = direct_result["regression"]
         d_prob_dist = direct_result["probability_distribution"]
         d_ensemble = d_reg.get("ensemble", 0)
-        _generate_chart(d_prob_dist, expected_ppi_mom, d_ensemble, direct_chart_path,
-                        title="PPI MoM - Direct Impact Model")
+        _generate_chart(d_prob_dist, expected_ppi_core_mom, d_ensemble, direct_chart_path,
+                        title="PPI Core MoM - Direct Impact Model")
         _generate_probability_matrix(d_prob_dist, d_ensemble, direct_matrix_path,
-                                     label="PPI Direct Impact")
+                                     label="PPI Core Direct Impact")
 
     # ── Build PDF ─────────────────────────────────────
-    pdf = PPIReportPDF(orientation="P", unit="mm", format="A4")
+    pdf = PPICoreReportPDF(orientation="P", unit="mm", format="A4")
     pdf.alias_nb_pages()
     pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
@@ -105,7 +105,7 @@ def generate_report(
         ("Avg MoM change", f"{summary.get('avg_mom_pct', 'N/A')}%"),
         ("Std MoM change", f"{summary.get('std_mom_pct', 'N/A')}%"),
         ("Positive months", f"{summary.get('positive_months_pct', 'N/A')}%"),
-        ("Latest PPI level", str(summary.get("latest_ppi", "N/A"))),
+        ("Latest PPI Core level", str(summary.get("latest_ppi_core", "N/A"))),
         ("Latest YoY change", f"{summary.get('latest_yoy', 'N/A')}%"),
     ]
     _add_key_value_table(pdf, summary_rows)
@@ -116,7 +116,7 @@ def generate_report(
     pdf.cell(0, 8, "2. Regression Point Estimates", ln=True)
     pdf.set_font("Helvetica", "", 10)
 
-    pdf.cell(0, 6, f"Market Expected MoM: {expected_ppi_mom:+.2f}%", ln=True)
+    pdf.cell(0, 6, f"Market Expected MoM: {expected_ppi_core_mom:+.2f}%", ln=True)
     pdf.ln(2)
 
     reg_rows = []
@@ -136,7 +136,7 @@ def generate_report(
 
     # Interpretation
     ensemble = reg.get("ensemble", 0)
-    diff = ensemble - expected_ppi_mom
+    diff = ensemble - expected_ppi_core_mom
     if abs(diff) < 0.05:
         interp = "Model closely agrees with market expectation."
     elif diff > 0:
@@ -152,7 +152,7 @@ def generate_report(
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 8, "3. Probability Distribution (Classification)", ln=True)
     pdf.set_font("Helvetica", "", 9)
-    pdf.cell(0, 5, "Probability that PPI MoM change falls in each 0.1% bin:", ln=True)
+    pdf.cell(0, 5, "Probability that PPI Core MoM change falls in each 0.1% bin:", ln=True)
     pdf.ln(2)
 
     _add_probability_table(pdf, prob_dist)
@@ -160,10 +160,8 @@ def generate_report(
 
     # ── Chart ─────────────────────────────────────────
     if chart_path.exists():
-        # Calculate width to fit nicely
         img_w = 180
         pdf.image(str(chart_path), x=15, w=img_w)
-        # Clean up temp chart
         try:
             os.remove(chart_path)
         except OSError:
@@ -195,14 +193,14 @@ def generate_report(
         pdf.set_font("Helvetica", "B", 14)
         pdf.cell(0, 10, "DIRECT IMPACT MODEL", ln=True, align="C")
         pdf.set_font("Helvetica", "", 9)
-        pdf.cell(0, 5, "(External economic indicators only - no PPI self-history)", ln=True, align="C")
+        pdf.cell(0, 5, "(External economic indicators only - no PPI Core self-history)", ln=True, align="C")
         pdf.ln(4)
 
         # Direct Impact Regression
         pdf.set_font("Helvetica", "B", 12)
         pdf.cell(0, 8, f"{sec}. Direct Impact - Regression Estimates", ln=True)
         pdf.set_font("Helvetica", "", 10)
-        pdf.cell(0, 6, f"Market Expected MoM: {expected_ppi_mom:+.2f}%", ln=True)
+        pdf.cell(0, 6, f"Market Expected MoM: {expected_ppi_core_mom:+.2f}%", ln=True)
         pdf.ln(2)
 
         dreg_rows = []
@@ -218,7 +216,7 @@ def generate_report(
             ))
         _add_key_value_table(pdf, dreg_rows)
 
-        ddiff = d_ensemble - expected_ppi_mom
+        ddiff = d_ensemble - expected_ppi_core_mom
         if abs(ddiff) < 0.05:
             dinterp = "Direct impact model closely agrees with market expectation."
         elif ddiff > 0:
@@ -359,13 +357,12 @@ def _add_probability_table(pdf: FPDF, prob_dist: list[tuple[str, float]]):
     max_prob = max((p for _, p in prob_dist), default=1)
 
     pdf.set_font("Helvetica", "B", 8)
-    pdf.cell(col_w[0], 5, "  PPI MoM", border="B")
+    pdf.cell(col_w[0], 5, "  PPI Core", border="B")
     pdf.cell(col_w[1], 5, "Prob %", border="B", align="R")
     pdf.cell(col_w[2], 5, "  Distribution", border="B", ln=True)
 
     pdf.set_font("Helvetica", "", 8)
     for label, prob in prob_dist:
-        # Color: green for positive bins, red for negative
         try:
             val = float(label.replace("%", "").replace(">", "").replace("<", ""))
         except ValueError:
@@ -380,7 +377,6 @@ def _add_probability_table(pdf: FPDF, prob_dist: list[tuple[str, float]]):
         pdf.cell(col_w[0], 4.5, f"  {label}", border=0)
         pdf.cell(col_w[1], 4.5, f"{prob:.1f}%", border=0, align="R")
 
-        # Draw bar
         bar_max_w = col_w[2] - 5
         bar_w = (prob / max_prob * bar_max_w) if max_prob > 0 else 0
         x = pdf.get_x() + 3
@@ -402,13 +398,12 @@ def _generate_chart(
     expected: float,
     ensemble: float,
     save_path: Path,
-    title: str = "PPI MoM Change - Probability Distribution",
+    title: str = "PPI Core MoM Change - Probability Distribution",
 ):
     """Generate a bar chart of the probability distribution."""
     labels = [l for l, _ in prob_dist]
     probs = [p for _, p in prob_dist]
 
-    # Color bars
     colors = []
     for l in labels:
         try:
@@ -426,7 +421,6 @@ def _generate_chart(
     x_pos = np.arange(len(labels))
     bars = ax.bar(x_pos, probs, color=colors, alpha=0.85, edgecolor="white", linewidth=0.5)
 
-    # Highlight the expected & ensemble
     ax.axvline(x=_find_closest_bin_idx(labels, expected), color="orange",
                linestyle="--", linewidth=2, label=f"Expected: {expected:+.1f}%")
     ax.axvline(x=_find_closest_bin_idx(labels, ensemble), color="purple",
@@ -439,7 +433,6 @@ def _generate_chart(
     ax.legend(fontsize=9)
     ax.grid(axis="y", alpha=0.3)
 
-    # Add percentage labels on top of bars > 3%
     for bar, prob in zip(bars, probs):
         if prob >= 3:
             ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.3,
@@ -469,7 +462,7 @@ def _generate_probability_matrix(
     prob_dist: list[tuple[str, float]],
     ensemble: float,
     save_path: Path,
-    label: str = "PPI",
+    label: str = "PPI Core",
 ):
     """
     Generate a probability matrix chart showing:

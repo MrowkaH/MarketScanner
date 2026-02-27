@@ -19,6 +19,7 @@ Każdy predictor realizuje ten sam pipeline:
 |--------|----------|------|
 | `CPI_Predictor/` | Consumer Price Index (CPI) | Prognoza zmian cen konsumenckich na podstawie korelacji z innymi wskaźnikami ekonomicznymi |
 | `PPI_Predictor/` | Producer Price Index (PPI) | Prognoza zmian cen producenckich z użyciem regresji i klasyfikacji ML, zwraca rozkład prawdopodobieństw po binach co 0.1% |
+| `PPI_CORE_Predictor/` | PPI Core (Less Food & Energy) | Prognoza zmian PPI Core (bez żywności i energii) – ten sam pipeline co PPI_Predictor, target: WPSFD49116 |
 
 ## Quick Start
 
@@ -46,7 +47,14 @@ MarketScanner/
 │   ├── config/
 │   ├── src/
 │   └── data/
-└── PPI_Predictor/          # Predictor dla PPI
+├── PPI_Predictor/          # Predictor dla PPI
+│   ├── main.py
+│   ├── .env
+│   ├── config/
+│   ├── src/
+│   ├── data/
+│   └── results/            # Raporty PDF
+└── PPI_CORE_Predictor/     # Predictor dla PPI Core
     ├── main.py
     ├── .env
     ├── config/

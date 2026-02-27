@@ -1,5 +1,5 @@
 """
-PPI Predictor - Data Processor
+PPI Core Predictor - Data Processor
 
 Transforms raw economic data into ML-ready features:
   - Month-over-month & year-over-year percentage changes
@@ -24,10 +24,10 @@ class DataProcessor:
         """
         Parameters
         ----------
-        raw_df : DataFrame with DatetimeIndex, must contain 'PPI' column.
+        raw_df : DataFrame with DatetimeIndex, must contain 'PPI_CORE' column.
         """
-        if "PPI" not in raw_df.columns:
-            raise ValueError("DataFrame must contain a 'PPI' column (target).")
+        if "PPI_CORE" not in raw_df.columns:
+            raise ValueError("DataFrame must contain a 'PPI_CORE' column (target).")
         self.raw = raw_df.copy().sort_index()
 
     # ── public ────────────────────────────────────────
@@ -46,59 +46,59 @@ class DataProcessor:
         # 2) Lag features for every column
         df = self._add_lags(df)
 
-        # 3) Rolling statistics on PPI & key columns
+        # 3) Rolling statistics on PPI_CORE & key columns
         df = self._add_rolling_stats(df)
 
         # 4) Calendar / seasonal features
         df = self._add_calendar_features(df)
 
-        # 5) Year-over-year change for PPI (target-adjacent)
+        # 5) Year-over-year change for PPI Core (target-adjacent)
         df = self._add_yoy(df)
 
-        # 6) Target: next month PPI MoM change (what we predict)
-        df["target_ppi_mom"] = df["PPI"].pct_change().shift(-1) * 100
+        # 6) Target: next month PPI Core MoM change (what we predict)
+        df["target_ppi_core_mom"] = df["PPI_CORE"].pct_change().shift(-1) * 100
 
         # Drop rows with NaN caused by lags / rolling
-        df = df.dropna(subset=["target_ppi_mom"])
+        df = df.dropna(subset=["target_ppi_core_mom"])
 
-        print(f"[DataProcessor] Feature matrix: {df.shape[0]} rows × {df.shape[1]} columns")
+        print(f"[DataProcessor] Feature matrix: {df.shape[0]} rows x {df.shape[1]} columns")
         return df
 
-    def add_expected_value(self, df: pd.DataFrame, expected_ppi_mom: float) -> pd.DataFrame:
+    def add_expected_value(self, df: pd.DataFrame, expected_ppi_core_mom: float) -> pd.DataFrame:
         """
-        Add a column with the market-expected PPI MoM change
+        Add a column with the market-expected PPI Core MoM change
         for the prediction month. This is set on the *last* row
         (the row we want to predict).
         """
         df = df.copy()
-        df["expected_ppi_mom"] = np.nan
-        df.loc[df.index[-1], "expected_ppi_mom"] = expected_ppi_mom
+        df["expected_ppi_core_mom"] = np.nan
+        df.loc[df.index[-1], "expected_ppi_core_mom"] = expected_ppi_core_mom
         # Back-fill with 0 for training rows (no expectation available)
-        df["expected_ppi_mom"] = df["expected_ppi_mom"].fillna(0.0)
+        df["expected_ppi_core_mom"] = df["expected_ppi_core_mom"].fillna(0.0)
         return df
 
     def filter_direct_impact(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Filter feature DataFrame to keep only external economic indicators.
-        Removes PPI's own historical values (level, MoM, lags, rolling stats, YoY)
+        Removes PPI Core's own historical values (level, MoM, lags, rolling stats, YoY)
         to focus on causal/leading indicators only.
 
-        The target column (target_ppi_mom) is preserved.
+        The target column (target_ppi_core_mom) is preserved.
         """
-        exclude_exact = {"PPI", "PPI_mom", "PPI_yoy"}
+        exclude_exact = {"PPI_CORE", "PPI_CORE_mom", "PPI_CORE_yoy"}
         drop_cols = set()
         for col in df.columns:
             if col in exclude_exact:
                 drop_cols.add(col)
-            elif col.startswith("PPI_mom_"):  # PPI_mom_lag*, PPI_mom_ma*, PPI_mom_std*
+            elif col.startswith("PPI_CORE_mom_"):  # PPI_CORE_mom_lag*, PPI_CORE_mom_ma*, PPI_CORE_mom_std*
                 drop_cols.add(col)
         # Never drop target
-        drop_cols.discard("target_ppi_mom")
+        drop_cols.discard("target_ppi_core_mom")
 
         result = df.drop(columns=[c for c in drop_cols if c in df.columns])
         removed = len(drop_cols)
         print(f"[DataProcessor] Direct impact features: {result.shape[0]} rows x {result.shape[1]} columns")
-        print(f"  (removed {removed} PPI self-referencing columns)")
+        print(f"  (removed {removed} PPI Core self-referencing columns)")
         return result
 
     # ── private helpers ───────────────────────────────
@@ -116,13 +116,13 @@ class DataProcessor:
         return pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1)
 
     def _add_rolling_stats(self, df: pd.DataFrame) -> pd.DataFrame:
-        ppi_mom = "PPI_mom"
+        ppi_mom = "PPI_CORE_mom"
         if ppi_mom not in df.columns:
             return df
         new_cols = {}
         for window in ROLLING_WINDOWS:
-            new_cols[f"PPI_mom_ma{window}"] = df[ppi_mom].rolling(window).mean()
-            new_cols[f"PPI_mom_std{window}"] = df[ppi_mom].rolling(window).std()
+            new_cols[f"PPI_CORE_mom_ma{window}"] = df[ppi_mom].rolling(window).mean()
+            new_cols[f"PPI_CORE_mom_std{window}"] = df[ppi_mom].rolling(window).std()
         return pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1)
 
     def _add_calendar_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -135,5 +135,5 @@ class DataProcessor:
         return pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1)
 
     def _add_yoy(self, df: pd.DataFrame) -> pd.DataFrame:
-        new_cols = {"PPI_yoy": df["PPI"].pct_change(12) * 100}
+        new_cols = {"PPI_CORE_yoy": df["PPI_CORE"].pct_change(12) * 100}
         return pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1)
