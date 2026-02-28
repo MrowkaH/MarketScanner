@@ -18,7 +18,7 @@ from sklearn.ensemble import (
     RandomForestClassifier,
 )
 from sklearn.linear_model import Ridge
-from sklearn.model_selection import TimeSeriesSplit, cross_val_score
+from sklearn.model_selection import TimeSeriesSplit, cross_val_score, RandomizedSearchCV
 from sklearn.metrics import (
     mean_absolute_error,
     mean_squared_error,
@@ -99,23 +99,40 @@ class Predictor:
         tscv = TimeSeriesSplit(n_splits=CV_FOLDS)
 
         for name, params in MODELS.items():
-            model = self._build_reg_model(name, params)
-            cv = cross_val_score(
-                model, X_train_reg, y_train,
-                cv=tscv, scoring="neg_mean_absolute_error",
+            base_model = self._build_reg_model(name, {})
+            param_grid = self._get_param_grid(name)
+            n_iter = 15 if name == "gradient_boosting" else 12 if name == "random_forest" else 3
+            
+            print(f"\n  {name} - RandomizedSearchCV in progress...")
+            
+            random_search = RandomizedSearchCV(
+                estimator=base_model,
+                param_distributions=param_grid,
+                n_iter=n_iter,  # Matches parameter space size
+                cv=tscv,
+                scoring="neg_mean_absolute_error",
+                n_jobs=-1,
+                verbose=0,
+                random_state=RANDOM_STATE,
             )
-            self.cv_scores[name] = {"mean_mae": -cv.mean(), "std_mae": cv.std()}
+            random_search.fit(X_train_reg, y_train)
+            
+            best_model = random_search.best_estimator_
+            self.reg_models[name] = best_model
+            
+            # Use RandomizedSearchCV best score (already cross-validated)
+            self.cv_scores[name] = {
+                "mean_mae": -random_search.best_score_,
+                "std_mae": random_search.cv_results_['std_test_score'][random_search.best_index_]
+            }
 
-            model.fit(X_train_reg, y_train)
-            self.reg_models[name] = model
-
-            y_pred = model.predict(X_test_reg)
+            y_pred = best_model.predict(X_test_reg)
             self.test_metrics[name] = {
                 "MAE": mean_absolute_error(y_test, y_pred),
                 "RMSE": np.sqrt(mean_squared_error(y_test, y_pred)),
                 "R2": r2_score(y_test, y_pred),
             }
-            print(f"\n  {name}")
+            print(f"     Best params: {random_search.best_params_}")
             print(f"     CV MAE  : {self.cv_scores[name]['mean_mae']:.4f} +/- {self.cv_scores[name]['std_mae']:.4f}")
             print(f"     Test MAE: {self.test_metrics[name]['MAE']:.4f}")
             print(f"     Test R2 : {self.test_metrics[name]['R2']:.4f}")
@@ -133,32 +150,54 @@ class Predictor:
         print(f"{'='*60}")
 
         clf_configs = {
-            "gb_classifier": GradientBoostingClassifier(
-                n_estimators=200, max_depth=4, learning_rate=0.05,
-                subsample=0.8, min_samples_split=10, min_samples_leaf=5,
-                random_state=RANDOM_STATE,
-            ),
-            "rf_classifier": RandomForestClassifier(
-                n_estimators=300, max_depth=8, min_samples_split=10,
-                min_samples_leaf=5, random_state=RANDOM_STATE,
-            ),
+            "gb_classifier": {
+                "model": GradientBoostingClassifier(random_state=RANDOM_STATE),
+                "params": {
+                    "n_estimators": [100, 200],
+                    "max_depth": [3, 4],
+                    "learning_rate": [0.05, 0.1],
+                    "subsample": [0.8, 1.0],
+                }
+            },
+            "rf_classifier": {
+                "model": RandomForestClassifier(random_state=RANDOM_STATE),
+                "params": {
+                    "n_estimators": [200, 300],
+                    "max_depth": [8, 10, None],
+                    "min_samples_split": [5, 10],
+                }
+            },
         }
 
-        for name, clf in clf_configs.items():
-            clf.fit(X_train_clf, y_binned_train)
-            self.clf_models[name] = clf
+        for name, config in clf_configs.items():
+            print(f"\n  {name} - RandomizedSearchCV in progress...")
+            
+            random_search = RandomizedSearchCV(
+                estimator=config["model"],
+                param_distributions=config["params"],
+                n_iter=10,  # Test 10 random combinations
+                cv=2,  # Use 2-fold (some classes have few samples)
+                scoring="accuracy",
+                n_jobs=-1,
+                verbose=0,
+                random_state=RANDOM_STATE,
+            )
+            random_search.fit(X_train_clf, y_binned_train)
+            
+            best_clf = random_search.best_estimator_
+            self.clf_models[name] = best_clf
 
-            y_pred_cls = clf.predict(X_test_clf)
-            y_proba = clf.predict_proba(X_test_clf)
+            y_pred_cls = best_clf.predict(X_test_clf)
+            y_proba = best_clf.predict_proba(X_test_clf)
 
             acc = accuracy_score(y_binned_test, y_pred_cls)
             try:
-                ll = log_loss(y_binned_test, y_proba, labels=clf.classes_)
+                ll = log_loss(y_binned_test, y_proba, labels=best_clf.classes_)
             except Exception:
                 ll = float("nan")
 
             self.clf_metrics[name] = {"accuracy": acc, "log_loss": ll}
-            print(f"\n  {name}")
+            print(f"     Best params: {random_search.best_params_}")
             print(f"     Accuracy: {acc:.4f}")
             print(f"     Log Loss: {ll:.4f}")
 
@@ -324,5 +363,30 @@ class Predictor:
             return RandomForestRegressor(random_state=42, **params)
         elif name == "ridge":
             return Ridge(**params)
+        else:
+            raise ValueError(f"Unknown model: {name}")
+    
+    @staticmethod
+    def _get_param_grid(name: str) -> dict:
+        """Return hyperparameter grid for GridSearchCV."""
+        if name == "gradient_boosting":
+            return {
+                "n_estimators": [100, 200, 300],
+                "max_depth": [3, 5, 7],
+                "learning_rate": [0.01, 0.05, 0.1],
+                "subsample": [0.8, 1.0],
+                "min_samples_split": [5, 10],
+            }
+        elif name == "random_forest":
+            return {
+                "n_estimators": [200, 300, 400],
+                "max_depth": [8, 10, 15, None],
+                "min_samples_split": [5, 10, 15],
+                "min_samples_leaf": [2, 5],
+            }
+        elif name == "ridge":
+            return {
+                "alpha": [0.1, 0.5, 1.0, 5.0, 10.0],
+            }
         else:
             raise ValueError(f"Unknown model: {name}")
